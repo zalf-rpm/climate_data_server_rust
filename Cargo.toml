@@ -1,0 +1,22 @@
+[package]
+
+name = "calculator"
+version = "0.0.0"
+authors = [ "David Renshaw <dwrenshaw@sandstorm.io>"  ]
+build = "build.rs"
+
+[[bin]]
+
+name = "calculator"
+path = "main.rs"
+
+[build-dependencies]
+capnpc = "0.9.5"
+
+[dependencies]
+capnp = "0.9.5"
+capnp-rpc = "0.9.0"
+futures = "0.1"
+tokio = "0.1"
+chrono = "0.4"
+
