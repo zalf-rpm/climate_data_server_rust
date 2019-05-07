@@ -20,6 +20,7 @@
 // THE SOFTWARE.
 
 use capnp::primitive_list;
+use capnp::list_list;
 use capnp::Error;
 
 use capnp_rpc::{rpc_twoparty_capnp, twoparty, RpcSystem};
@@ -34,7 +35,8 @@ use tokio::io::AsyncRead;
 use tokio::runtime::current_thread;
 
 use chrono::prelude::*;
-use std::collections::HashMap;
+use chrono::Duration;
+//use std::collections::HashMap;
 
 struct YearlyTavg;
 
@@ -65,13 +67,41 @@ impl climate::identifiable::Server for YearlyTavg {
     }
 }
 
+fn round(num: f64, digits: i32) -> f64 {
+    (10_f64.powi(digits) * num).round() / 10_f64.powi(digits)
+}
+
 fn calc_yearly_tavg(
     start_date: Date<Utc>,
     end_date: Date<Utc>,
     header: climate::time_series::header_results::Reader,//<'_>,
-    data: climate::time_series::data_results::Reader,//<'_>,
+    data: list_list::Reader<primitive_list::Owned<f32>>,
 ) -> (Vec<f64>, Vec<f64>) {
-    (vec![], vec![])
+
+    let mut current_year = start_date.year();
+    let mut current_sum_t = 0_f64;
+    let mut current_day_count = 0;
+    let mut years: Vec<f64> = Vec::new();
+    let mut tavgs: Vec<f64> = Vec::new();
+    let no_of_days = end_date.signed_duration_since(start_date).num_days();
+    print!("no_of_days: {}", no_of_days);
+    for day in 0..no_of_days {
+        let current_date = start_date + Duration::days(day);
+
+        if current_year != current_date.year() {
+            years.push(current_year as f64);
+            tavgs.push(round(current_sum_t / (current_day_count as f64), 2));
+            current_year = current_date.year();
+            current_sum_t = 0_f64;
+            current_day_count = 0;
+        }
+
+        //let x = data.get(day as u32).unwrap().get(0);
+        current_sum_t += data.get(day as u32).unwrap().get(0) as f64;
+        current_day_count += 1;
+    }
+
+    (years, tavgs)
 }
 
 impl climate::model::Server for YearlyTavg {
@@ -91,8 +121,6 @@ impl climate::model::Server for YearlyTavg {
     ) -> Promise<(), Error> {
         let ts = pry!(pry!(params.get()).get_time_series());
 
-        //ts.header_request().send();
-
         Promise::from_future(
             ts.header_request().send().promise.join3(
             ts.data_request().send().promise,
@@ -102,7 +130,8 @@ impl climate::model::Server for YearlyTavg {
             let rr = r.get().unwrap();
             let sd = rr.get_start_date().unwrap();
             let ed = rr.get_end_date().unwrap();
-            //*
+
+            let x =  d.get().unwrap().get_data().unwrap();
             //let (xs, ys) = self.calc_yearly_tavg(
             let (xs, ys) = calc_yearly_tavg(
                 Utc.ymd(
@@ -116,9 +145,8 @@ impl climate::model::Server for YearlyTavg {
                     ed.get_day().into(),
                 ),
                 h.get().unwrap(),
-                d.get().unwrap(),
+                d.get().unwrap().get_data().unwrap(),
             );
-            //*
             let mut xy_result_b = result.get().init_result();
             {
                 let mut xsb = xy_result_b.reborrow().init_xs(xs.len() as u32);
