@@ -33,8 +33,8 @@ use futures::{Future, Stream};
 use tokio::io::AsyncRead;
 use tokio::runtime::current_thread;
 
-use std::collections::HashMap;
 use chrono::prelude::*;
+use std::collections::HashMap;
 
 struct YearlyTavg;
 
@@ -44,13 +44,13 @@ impl YearlyTavg {
     }
 
     fn calc_yearly_tavg(
-        &mut self,
+        &self,
         start_date: Date<Utc>,
         end_date: Date<Utc>,
-        header: climate::time_series::header_results::Reader<'_>,
-        data: climate::time_series::data_results::Reader<'_>
+        header: climate::time_series::header_results::Reader,//<'_>,
+        data: climate::time_series::data_results::Reader,//<'_>,
     ) -> (Vec<f64>, Vec<f64>) {
-        (vec![],vec![])
+        (vec![], vec![])
     }
 }
 
@@ -65,63 +65,83 @@ impl climate::identifiable::Server for YearlyTavg {
     }
 }
 
+fn calc_yearly_tavg(
+    start_date: Date<Utc>,
+    end_date: Date<Utc>,
+    header: climate::time_series::header_results::Reader,//<'_>,
+    data: climate::time_series::data_results::Reader,//<'_>,
+) -> (Vec<f64>, Vec<f64>) {
+    (vec![], vec![])
+}
+
 impl climate::model::Server for YearlyTavg {
     fn run_set(
-        &mut self, 
-        params: climate::model::RunSetParams<>, 
-        mut result: climate::model::RunSetResults<>
-    ) -> Promise<(), Error> { 
-        //::capnp::capability::Promise::err(::capnp::Error::unimplemented("method not implemented".to_string())) 
+        &mut self,
+        params: climate::model::RunSetParams,
+        mut result: climate::model::RunSetResults,
+    ) -> Promise<(), Error> {
+        //::capnp::capability::Promise::err(::capnp::Error::unimplemented("method not implemented".to_string()))
         Promise::ok(())
     }
-    
+
     fn run(
-        &mut self, 
-        params: climate::model::RunParams<>, 
-        mut result: climate::model::RunResults<>
+        &mut self,
+        params: climate::model::RunParams,
+        mut result: climate::model::RunResults,
     ) -> Promise<(), Error> {
         let ts = pry!(pry!(params.get()).get_time_series());
-        let mut hreq = ts.header_request();
-        let x = hreq.send();
-        let h = x.promise.wait().unwrap();
-        //let hresp = h.get().unwrap();
 
-        //::capnp::enum_list::Reader<'a,::climate_data_capnp::climate::Element>
+        //ts.header_request().send();
 
-        let mut dreq = ts.data_request();
-        let mut y = dreq.send();
-
-        //let proms = vec![x, y];
-
-        let p = Promise::from_future(
+        Promise::from_future(
             ts.header_request().send().promise.join3(
-            ts.data_request().send().promise, 
-            ts.range_request().send().promise));
-        p.and_then(|hdr| {
+            ts.data_request().send().promise,
+            ts.range_request().send().promise).and_then(move |hdr| {
+
             let (h, d, r) = hdr;
             let rr = r.get().unwrap();
             let sd = rr.get_start_date().unwrap();
             let ed = rr.get_end_date().unwrap();
-            let (xs, ys) = self.calc_yearly_tavg(
-                Utc.ymd(sd.get_year().into(), sd.get_month().into(), sd.get_day().into()), 
-                Utc.ymd(ed.get_year().into(), ed.get_month().into(), ed.get_day().into()),
-                h.get().unwrap(), 
-                d.get().unwrap()
+            //*
+            //let (xs, ys) = self.calc_yearly_tavg(
+            let (xs, ys) = calc_yearly_tavg(
+                Utc.ymd(
+                    sd.get_year().into(),
+                    sd.get_month().into(),
+                    sd.get_day().into(),
+                ),
+                Utc.ymd(
+                    ed.get_year().into(),
+                    ed.get_month().into(),
+                    ed.get_day().into(),
+                ),
+                h.get().unwrap(),
+                d.get().unwrap(),
             );
-            let xy_result = result.get().init_result();
-            xy_result.set_xs(xs.into());
-            result.get().set_result(xy_result);
+            //*
+            let mut xy_result_b = result.get().init_result();
+            {
+                let mut xsb = xy_result_b.reborrow().init_xs(xs.len() as u32);
+                for i in 0..xs.len() {
+                    xsb.set(i as u32, xs[i]);
+                }
+                //xy_result_b.reborrow().set_xs(xsb.into_reader());
+            }
+            {
+                let mut ysb = xy_result_b.reborrow().init_ys(ys.len() as u32);
+                for i in 0..xs.len() {
+                    ysb.set(i as u32, ys[i]);
+                }
+                //xy_result_b.reborrow().set_ys(ysb.into_reader());
+            }
+            //*/
 
-        });
+            //result.get().set_result(xy_result_b.into_reader());
 
-        //::capnp::capability::Promise::err(::capnp::Error::unimplemented("method not implemented".to_string())) 
-        Promise::ok(())
+            Promise::ok(())
+        }))
     }
 }
-
-
-
-
 
 struct ValueImpl {
     value: f64,
@@ -323,7 +343,8 @@ pub fn main() {
     let socket = ::tokio::net::TcpListener::bind(&addr).unwrap();
 
     //let calc = calculator::ToClient::new(CalculatorImpl).into_client::<::capnp_rpc::Server>();
-    let yearly_tavg = climate::model::ToClient::new(YearlyTavg).into_client::<::capnp_rpc::Server>();
+    let yearly_tavg =
+        climate::model::ToClient::new(YearlyTavg).into_client::<::capnp_rpc::Server>();
 
     let done = socket.incoming().for_each(move |socket| {
         socket.set_nodelay(true)?;
