@@ -61,8 +61,8 @@ impl climate::identifiable::Server for YearlyTavg {
     fn info(
         &mut self,
         _params: climate::identifiable::InfoParams,
-        mut results: climate::identifiable::InfoResults) 
-        -> Promise<(), Error> {
+        mut results: climate::identifiable::InfoResults,
+    ) -> Promise<(), Error> {
         //results.get().set_info()
         Promise::ok(())
     }
@@ -75,9 +75,9 @@ fn round(num: f64, digits: i32) -> f64 {
 fn calc_yearly_tavg(
     start_date: Date<Utc>,
     end_date: Date<Utc>,
-    header: climate::time_series::header_results::Reader, //<'_>,
-    data: list_list::Reader<primitive_list::Owned<f32>>)
-    -> (Vec<f64>, Vec<f64>) {
+    _header: climate::time_series::header_results::Reader, 
+    data: list_list::Reader<primitive_list::Owned<f32>>,
+) -> (Vec<f64>, Vec<f64>) {
     let mut current_year = start_date.year();
     let mut current_sum_t = 0_f64;
     let mut current_day_count = 0;
@@ -85,6 +85,7 @@ fn calc_yearly_tavg(
     let mut tavgs: Vec<f64> = Vec::new();
     let no_of_days = end_date.signed_duration_since(start_date).num_days();
     print!("no_of_days: {}", no_of_days);
+    let daily_tavgs = data.get(0).unwrap();
     for day in 0..no_of_days {
         let current_date = start_date + Duration::days(day);
 
@@ -96,7 +97,7 @@ fn calc_yearly_tavg(
             current_day_count = 0;
         }
 
-        current_sum_t += data.get(day as u32).unwrap().get(0) as f64;
+        current_sum_t += daily_tavgs.get(day as u32) as f64;
         current_day_count += 1;
     }
 
@@ -107,8 +108,8 @@ impl climate::model::Server for YearlyTavg {
     fn run_set(
         &mut self,
         params: climate::model::RunSetParams,
-        mut result: climate::model::RunSetResults) 
-        -> Promise<(), Error> {
+        mut result: climate::model::RunSetResults,
+    ) -> Promise<(), Error> {
         //::capnp::capability::Promise::err(::capnp::Error::unimplemented("method not implemented".to_string()))
         Promise::ok(())
     }
@@ -116,8 +117,8 @@ impl climate::model::Server for YearlyTavg {
     fn run(
         &mut self,
         params: climate::model::RunParams,
-        mut result: climate::model::RunResults) 
-        -> Promise<(), Error> {
+        mut result: climate::model::RunResults,
+    ) -> Promise<(), Error> {
         let ts = pry!(pry!(params.get()).get_time_series());
 
         Promise::from_future(
@@ -125,7 +126,7 @@ impl climate::model::Server for YearlyTavg {
                 .send()
                 .promise
                 .join3(
-                    ts.data_request().send().promise,
+                    ts.data_t_request().send().promise,
                     ts.range_request().send().promise,
                 )
                 .and_then(move |hdr| {
@@ -134,7 +135,6 @@ impl climate::model::Server for YearlyTavg {
                     let sd = rr.get_start_date().unwrap();
                     let ed = rr.get_end_date().unwrap();
 
-                    let x = d.get().unwrap().get_data().unwrap();
                     //let (xs, ys) = self.calc_yearly_tavg(
                     let (xs, ys) = calc_yearly_tavg(
                         Utc.ymd(
@@ -156,25 +156,19 @@ impl climate::model::Server for YearlyTavg {
                         for i in 0..xs.len() {
                             xsb.set(i as u32, xs[i]);
                         }
-                        //xy_result_b.reborrow().set_xs(xsb.into_reader());
                     }
                     {
                         let mut ysb = xy_result_b.reborrow().init_ys(ys.len() as u32);
                         for i in 0..xs.len() {
                             ysb.set(i as u32, ys[i]);
                         }
-                        //xy_result_b.reborrow().set_ys(ysb.into_reader());
                     }
-                    //*/
-                    //result.get().set_result(xy_result_b.into_reader());
 
                     Promise::ok(())
                 }),
         )
     }
 }
-
-
 
 struct DataServiceImpl;
 
@@ -185,23 +179,27 @@ impl DataServiceImpl {
 }
 
 impl climate::data_service::Server for DataServiceImpl {
-
-    fn simulations(  //simulations @0 () -> (simulations :List(Simulation));
+    fn simulations(
         &mut self,
         _params: climate::data_service::SimulationsParams,
-        mut results: climate::data_service::SimulationsResults)
-        -> Promise<(), Error> {
+        mut results: climate::data_service::SimulationsResults,
+    ) -> Promise<(), Error> {
         Promise::ok(())
     }
-    
-    fn models(  //models @1 () -> (models :List(Model));
+
+    fn models(
         &mut self,
         _params: climate::data_service::ModelsParams,
-        mut results: climate::data_service::ModelsResults) 
-        -> Promise<(), Error> {
-        
+        mut results: climate::data_service::ModelsResults,
+    ) -> Promise<(), Error> {
         let mut models = results.get().init_models(1);
-        models.set(0, climate::model::ToClient::new(YearlyTavg).into_client::<::capnp_rpc::Server>().client.hook);
+        models.set(
+            0,
+            climate::model::ToClient::new(YearlyTavg)
+                .into_client::<::capnp_rpc::Server>()
+                .client
+                .hook,
+        );
 
         Promise::ok(())
     }
