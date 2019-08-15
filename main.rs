@@ -26,20 +26,37 @@ extern crate tokio;
 extern crate chrono;
 
 pub mod climate_data_capnp {
-  include!(concat!(env!("OUT_DIR"), "/capnproto_schemas/climate_data_capnp.rs"));
+  include!(concat!(env!("OUT_DIR"), "/climate_data_capnp.rs"));
 }
 
-pub mod date_capnp {
-  include!(concat!(env!("OUT_DIR"), "/capnproto_schemas/date_capnp.rs"));
+pub mod model_capnp {
+  include!(concat!(env!("OUT_DIR"), "/model_capnp.rs"));
+}
+
+pub mod common_capnp {
+  include!(concat!(env!("OUT_DIR"), "/common_capnp.rs"));
 }
 
 pub mod geo_coord_capnp {
-  include!(concat!(env!("OUT_DIR"), "/capnproto_schemas/geo_coord_capnp.rs"));
+  include!(concat!(env!("OUT_DIR"), "/geo_coord_capnp.rs"));
+}
+
+pub mod persistent_capnp {
+  include!(concat!(env!("OUT_DIR"), "/capnp/persistent_capnp.rs"));
+}
+
+pub mod cluster_admin_service_capnp {
+  include!(concat!(env!("OUT_DIR"), "/cluster_admin_service_capnp.rs"));
+}
+
+pub mod service_capnp {
+  include!(concat!(env!("OUT_DIR"), "/service_capnp.rs"));
 }
 
 
 //pub mod client;
 pub mod server;
+pub mod cluster_monica_instance_factory;
 
 pub fn main() {
     let args: Vec<String> = ::std::env::args().collect();
@@ -47,6 +64,7 @@ pub fn main() {
         match &args[1][..] {
             //"client" => return client::main(),
             "server" => return server::main(),
+            "instance_factory" => return cluster_monica_instance_factory::main(),
             _ => ()
         }
     }

@@ -31,6 +31,7 @@ use climate_data_capnp::climate;
 use model_capnp::model;
 use common_capnp::common;
 use service_capnp::service;
+use persistent_capnp::persistent;
 
 use futures::{Future, Stream};
 use tokio::io::AsyncRead;
@@ -39,6 +40,123 @@ use tokio::runtime::current_thread;
 use chrono::prelude::*;
 use chrono::Duration;
 //use std::collections::HashMap;
+
+struct Callback<T>
+where T: Fn() -> ()  {
+    callback: T,
+    already_called: bool,
+    exec_callback_on_del: bool,
+}
+
+impl<T> Callback<T>
+where T: Fn() -> () {
+    fn new(callback: T, exec_callback_on_del: bool) -> Callback<T> {
+        Callback {
+            callback,
+            already_called: false,
+            exec_callback_on_del,
+        }
+    }
+}
+
+impl<T> Drop for Callback<T> 
+where T: Fn() -> () {
+    fn drop(&mut self) {
+        if self.exec_callback_on_del && !self.already_called {
+            (self.callback)();
+        }
+    }
+}   
+
+impl<T> common::callback::Server for Callback<T>
+where T: Fn() -> () {
+    fn call(
+        &mut self,
+        _params: common::callback::CallParams,
+        _results: common::callback::CallResults,
+    ) -> Promise<(), Error> {
+        (self.callback)();
+        self.already_called = true;
+        Promise::ok(())
+    }
+}
+
+//---------------------------------------------------------------------------------------
+
+
+
+struct CapHolder<F, C> 
+where F: Fn() -> (),
+for<'c> C: capnp::traits::Owned<'c> {
+    cap: C,
+    sturdy_ref: String,
+    cleanup: F,
+    already_cleaned_up: bool,
+    cleanup_on_del: bool,
+}
+
+impl<F, C> CapHolder<F, C>
+where F: Fn() -> (),
+for<'c> C: capnp::traits::Owned<'c> {
+    fn new(cap: C, sturdy_ref: String, cleanup: F, cleanup_on_del: bool) -> CapHolder<F, C> {
+        CapHolder {
+            cap,
+            sturdy_ref,
+            cleanup,
+            already_cleaned_up: false,
+            cleanup_on_del,
+        }
+    }
+}
+
+//impl<F, C> Drop for CapHolder<F, C> 
+//where F: Fn() -> (),
+//for<'c> C: capnp::traits::Owned<'c> {
+//    fn drop(&mut self) {
+//        if self.cleanup_on_del && !self.already_cleaned_up {
+//            (self.cleanup)();
+//        }
+//    }
+//}   
+
+impl<F, C> common::cap_holder::Server<C> for CapHolder<F, C> 
+where F: Fn() -> (),
+for<'c> C: capnp::traits::Owned<'c> {  
+    fn cap(
+        &mut self,
+        _params: common::cap_holder::CapParams<C>,
+        results: common::cap_holder::CapResults<C>,
+    ) -> Promise<(), Error> {
+        results.get().cap = self.cap;
+        Promise::ok(())
+    }
+
+    fn free(
+        &mut self,
+        _params: common::cap_holder::FreeParams<C>,
+        _results: common::cap_holder::FreeResults<C>,
+    ) -> Promise<(), Error> {
+        (self.cleanup)();
+        self.already_cleaned_up = true;
+        Promise::ok(())
+    }
+}
+
+impl<F, C> persistent::Server<capnp::text::Owned, capnp::text::Owned> for CapHolder<F, C>
+where F: Fn() -> (),
+for<'c> C: capnp::traits::Owned<'c> {
+    fn save(
+        &mut self,
+        _params: persistent::SaveParams<capnp::text::Owned, capnp::text::Owned>,
+        results: persistent::SaveResults<capnp::text::Owned, capnp::text::Owned>,
+    ) -> Promise<(), Error> {
+        //results.sturdy_ref = self.sturdy_ref;
+        Promise::ok(())
+    }
+}
+
+//-----------------------------------------------------------------------------
+
 
 struct YearlyTavg;
 
